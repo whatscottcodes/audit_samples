@@ -7,9 +7,46 @@ from paceutils import Helpers
 auditor_dict = {
     "documentation": ["Yenissa", "Adrianna"],
     "cos": ["Betsy"],
-    "closed": ["Betsy", "Dr. G", "Julianne", "Mike", "Liz"],
+    "closed": ["Alix", "Pauline", "Julianne", "Mike", "Liz"],
     "initial": ["Cherie", "Melisa"],
 }
+
+
+def assign_and_save(sample, auditors, filename, start_date, end_date, current_date):
+
+    sample["audit_number"] = [1 + row_num for row_num in sample.index]
+
+    sample["auditor"] = ""
+    sample_size = sample.shape[0]
+    num_auditors = len(auditors)
+
+    splits = [
+        sample_size // num_auditors + (1 if x < sample_size % num_auditors else 0)
+        for x in range(num_auditors)
+    ]
+
+    sample.reset_index(drop=True, inplace=True)
+    start = 0
+    for auditor, split in zip(auditors, splits):
+        sample.loc[start : start + split, "auditor"] = auditor
+        start += split
+
+    cols = ["audit_number", "auditor"] + [
+        col for col in sample.columns if col not in ["audit_number", "auditor"]
+    ]
+    sample = sample[cols].copy()
+
+    month = int(current_date.split("-")[1])
+    year = current_date.split("-")[0]
+    month_name = calendar.month_name[month]
+
+    sample_folder = Path(f"V:/CMT/_Audits/{month}_{month_name} {year}/Ppt Samples")
+    # sample_folder = Path("test_output")
+    file_to_save = sample_folder / f"{filename}{start_date}_{end_date}.csv"
+
+    sample.to_csv(file_to_save, index=False)
+
+    print("Success")
 
 
 def get_sample(start_date=None, end_date=None, audit_type="documentation"):
@@ -26,16 +63,59 @@ def get_sample(start_date=None, end_date=None, audit_type="documentation"):
     else:
         current_date = end_date
 
-    if audit_type == "initial":
+    if audit_type == "initial-closed":
         cps = pd.read_csv(
             "./data/ParticipantCarePlanReview.csv", parse_dates=["StatusDate"]
         )
-        sample = cps[
+        sample_initial = cps[
             (cps.StatusDate >= pd.to_datetime(start_date))
             & (cps.StatusDate <= pd.to_datetime(end_date))
             & (cps.Type == "Initial")
         ].copy()
-        filename = "initial_cp_all_"
+
+        sample_closed = cps[
+            (cps.StatusDate >= pd.to_datetime(start_date))
+            & (cps.StatusDate <= pd.to_datetime(end_date))
+            & (cps.Type != "Initial")
+        ].copy()
+
+        sample_closed = sample_closed.sample(frac=0.3)
+
+        initial_reviewers_load = round(
+            len(sample_initial.index) / len(auditor_dict["initial"]), 0
+        )
+        closed_reviewers_load = round(
+            len(sample_closed.index) / len(auditor_dict["closed"]), 0
+        )
+
+        if initial_reviewers_load > closed_reviewers_load:
+            sample_initial.reset_index(drop=True, inplace=True)
+            sample_closed.reset_index(drop=True, inplace=True)
+
+            rows_to_pop = int(initial_reviewers_load - closed_reviewers_load)
+            rows_to_add_to_closed = sample_initial.iloc[-rows_to_pop:].copy()
+
+            sample_initial = sample_initial.iloc[
+                : (len(sample_initial.index) - rows_to_pop)
+            ].copy()
+            sample_closed = sample_closed.append(rows_to_add_to_closed, sort=False)
+
+        assign_and_save(
+            sample_initial,
+            auditor_dict["initial"],
+            "initial_cp_all_",
+            start_date,
+            end_date,
+            current_date,
+        )
+        assign_and_save(
+            sample_closed,
+            auditor_dict["closed"],
+            "careplan_audit_",
+            start_date,
+            end_date,
+            current_date,
+        )
 
     if audit_type == "cos":
         cps = pd.read_csv(
@@ -46,20 +126,11 @@ def get_sample(start_date=None, end_date=None, audit_type="documentation"):
             & (cps.StatusDate >= pd.to_datetime(start_date))
             & (cps.StatusDate <= pd.to_datetime(end_date))
         ].copy()
-        filename = "cos_cp_"
 
-    if audit_type == "closed":
-        cps = pd.read_csv(
-            "./data/ParticipantCarePlanReview.csv", parse_dates=["StatusDate"]
+        sample.reset_index(drop=True, inplace=True)
+        assign_and_save(
+            sample, auditor_dict["cos"], "cos_cp_", start_date, end_date, current_date
         )
-        sample = cps[
-            (cps.StatusDate >= pd.to_datetime(start_date))
-            & (cps.StatusDate <= pd.to_datetime(end_date))
-            & (cps.Type != "Initial")
-        ].copy()
-        filename = "careplan_audit_"
-
-        sample = sample.sample(frac=0.3)
 
     if audit_type == "documentation":
         query = """SELECT e.member_id, enrollment_date, first, last
@@ -69,47 +140,21 @@ def get_sample(start_date=None, end_date=None, audit_type="documentation"):
         sample = helper.dataframe_query(query, params=(start_date, end_date)).sample(
             frac=0.04
         )
-        filename = "documentation_audit_"
 
-    sample.reset_index(drop=True, inplace=True)
-
-    auditors = auditor_dict[audit_type]
-    sample["auditor"] = ""
-    sample_size = sample.shape[0]
-    num_auditors = len(auditors)
-
-    splits = [
-        sample_size // num_auditors + (1 if x < sample_size % num_auditors else 0)
-        for x in range(num_auditors)
-    ]
-
-    start = 0
-    for auditor, split in zip(auditors, splits):
-        sample.loc[start : start + split, "auditor"] = auditor
-        start += split
-
-    sample["audit_number"] = range(1, sample_size + 1)
-
-    cols = ["audit_number", "auditor"] + [
-        col for col in sample.columns if col not in ["audit_number", "auditor"]
-    ]
-    sample = sample[cols].copy()
-
-    month = int(current_date.split("-")[1])
-    year = current_date.split("-")[0]
-    month_name = calendar.month_name[month]
-
-    sample_folder = Path(f"V:/CMT/_Audits/{month}_{month_name} {year}/Ppt Samples")
-    file_to_save = sample_folder / f"{filename}{start_date}_{end_date}.csv"
-
-    sample.to_csv(file_to_save, index=False)
-
-    print("Success")
+        sample.reset_index(drop=True, inplace=True)
+        assign_and_save(
+            sample,
+            auditor_dict["documentation"],
+            "documentation_audit_",
+            start_date,
+            end_date,
+            current_date,
+        )
 
 
 def samples_wrapper(start_date=None, end_date=None, audit_type="all"):
     if audit_type == "all":
-        for sample in ["initial", "cos", "closed", "documentation"]:
+        for sample in ["initial-closed", "cos", "documentation"]:
             get_sample(start_date, end_date, audit_type=sample)
         print("Success")
     else:
@@ -134,7 +179,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--audit_type",
         default="all",
-        help="Defaults to all to run all audits, can be specified to only run one sample of initial, cos, closed, or documentation",
+        help="Defaults to all to run all audits, can be specified to only run one sample of initial-closed, cos, or documentation",
     )
 
     arguments = parser.parse_args()
