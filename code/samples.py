@@ -12,7 +12,9 @@ auditor_dict = {
 }
 
 
-def assign_and_save(sample, auditors, filename, start_date, end_date, current_date):
+def assign_and_save(
+    sample, auditors, filename, start_date, end_date, current_date, save_location=None
+):
 
     sample["audit_number"] = [1 + row_num for row_num in sample.index]
 
@@ -39,9 +41,10 @@ def assign_and_save(sample, auditors, filename, start_date, end_date, current_da
     month = int(current_date.split("-")[1])
     year = current_date.split("-")[0]
     month_name = calendar.month_name[month]
-
-    sample_folder = Path(f"V:/CMT/_Audits/{month}_{month_name} {year}/Ppt Samples")
-    # sample_folder = Path("test_output")
+    if save_location is None:
+        sample_folder = Path(f"V:/CMT/_Audits/{month}_{month_name} {year}/Ppt Samples")
+    else:
+        sample_folder = Path(save_location)
     file_to_save = sample_folder / f"{filename}{start_date}_{end_date}.csv"
 
     sample.to_csv(file_to_save, index=False)
@@ -49,7 +52,9 @@ def assign_and_save(sample, auditors, filename, start_date, end_date, current_da
     print("Success")
 
 
-def get_sample(start_date=None, end_date=None, audit_type="documentation"):
+def get_sample(
+    start_date=None, end_date=None, audit_type="documentation", save_location=None
+):
     helper = Helpers()
 
     if (start_date is None) | (end_date is None):
@@ -61,7 +66,7 @@ def get_sample(start_date=None, end_date=None, audit_type="documentation"):
         end_date = dates[1]
         current_date = helper.month_to_date()[1]
     else:
-        current_date = end_date
+        current_date = helper.month_to_date()[1]
 
     if audit_type == "initial-closed":
         cps = pd.read_csv(
@@ -77,6 +82,7 @@ def get_sample(start_date=None, end_date=None, audit_type="documentation"):
             (cps.StatusDate >= pd.to_datetime(start_date))
             & (cps.StatusDate <= pd.to_datetime(end_date))
             & (cps.Type != "Initial")
+            & (cps.Type != "Change in Condition")
         ].copy()
 
         sample_closed = sample_closed.sample(frac=0.3)
@@ -107,6 +113,7 @@ def get_sample(start_date=None, end_date=None, audit_type="documentation"):
             start_date,
             end_date,
             current_date,
+            save_location,
         )
         assign_and_save(
             sample_closed,
@@ -115,6 +122,7 @@ def get_sample(start_date=None, end_date=None, audit_type="documentation"):
             start_date,
             end_date,
             current_date,
+            save_location,
         )
 
     if audit_type == "cos":
@@ -149,16 +157,23 @@ def get_sample(start_date=None, end_date=None, audit_type="documentation"):
             start_date,
             end_date,
             current_date,
+            save_location,
         )
 
 
-def samples_wrapper(start_date=None, end_date=None, audit_type="all"):
+def samples_wrapper(
+    start_date=None, end_date=None, audit_type="all", save_location=None
+):
     if audit_type == "all":
         for sample in ["initial-closed", "cos", "documentation"]:
-            get_sample(start_date, end_date, audit_type=sample)
+            get_sample(
+                start_date, end_date, audit_type=sample, save_location=save_location
+            )
         print("Success")
     else:
-        get_sample(start_date, end_date, audit_type=audit_type)
+        get_sample(
+            start_date, end_date, audit_type=audit_type, save_location=save_location
+        )
 
 
 if __name__ == "__main__":
@@ -180,6 +195,12 @@ if __name__ == "__main__":
         "--audit_type",
         default="all",
         help="Defaults to all to run all audits, can be specified to only run one sample of initial-closed, cos, or documentation",
+    )
+
+    parser.add_argument(
+        "--save_location",
+        default=None,
+        help="Folder path to save samples in. Defaults to V:\CMT\_Audits\month_num_monthName YYYY\Ppt Samples, where the month values are the current month.",
     )
 
     arguments = parser.parse_args()
